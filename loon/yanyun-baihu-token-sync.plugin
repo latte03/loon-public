@@ -1,20 +1,21 @@
 #!name=燕云十六声 - 白虎登录态同步
-#!desc=打开网易大神时，按 glUid 将最新 glToken 同步至白虎的 YY_BLINDBOX_ACCOUNTS。仅变更时通知。版本：2026.07.26.3
+#!desc=打开网易大神时，按 glUid 将最新 glToken 同步至白虎的 YY_BLINDBOX_ACCOUNTS。仅变更时通知。版本：2026.07.26.4
 #!author=latte03
 #!homepage=https://github.com/latte03/loon-public
 #!system=iOS
 #!tag=燕云十六声,白虎,网易大神
-# Version: 2026.07.26.3
+# Version: 2026.07.26.4
 # Updated: 2026-07-26
 
 [Argument]
 baihu_url = input,"https://baihu.agan.work:16666",tag=白虎地址,desc=白虎面板根地址；不要填写 /open2api/v1。
 baihu_api_token = input,"",tag=白虎 OpenAPI Token,desc=在白虎面板生成的 OpenAPI Token，仅保存于本机 Loon 配置。
 env_name = input,"YY_BLINDBOX_ACCOUNTS",tag=环境变量名,desc=存放燕云账号数组的白虎普通环境变量名称。
+baihu_node = input,"DIRECT",tag=白虎请求策略,desc=默认 DIRECT；若直连没有 IPv6，请填一个可访问白虎 IPv6 地址的 Loon 策略组或节点名称。
 sync_enabled = switch,true,tag=启用同步,desc=关闭后不读取或上传任何网易大神登录态。
 
 [Script]
-http-request ^https:\/\/god\.gameyw\.netease\.com\/v1\/app\/conf\/get(?:\?.*)?$ script-path=https://raw.githubusercontent.com/latte03/loon-public/main/loon/yanyun_baihu_token_sync.js?v=20260726.3,tag=同步网易大神 glToken,timeout=300,argument=[{baihu_url},{baihu_api_token},{env_name},{sync_enabled}],enable=true
+http-request ^https:\/\/god\.gameyw\.netease\.com\/v1\/app\/conf\/get(?:\?.*)?$ script-path=https://raw.githubusercontent.com/latte03/loon-public/main/loon/yanyun_baihu_token_sync.js?v=20260726.4,tag=同步网易大神 glToken,timeout=300,argument=[{baihu_url},{baihu_api_token},{env_name},{baihu_node},{sync_enabled}],enable=true
 
 [MITM]
 hostname = god.gameyw.netease.com

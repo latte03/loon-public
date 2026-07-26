@@ -18,18 +18,19 @@ const TITLE = '燕云登录态同步';
     const panelUrl = normalizePanelUrl(args.baihu_url);
     const apiToken = text(args.baihu_api_token);
     const envName = text(args.env_name) || 'YY_BLINDBOX_ACCOUNTS';
+    const baihuNode = text(args.baihu_node) || 'DIRECT';
     const glUid = headerValue($request.headers, 'gl-uid');
     const glToken = headerValue($request.headers, 'gl-token');
 
     if (!apiToken) throw new Error('未填写白虎 OpenAPI Token');
     if (!glUid || !glToken) throw new Error('网易大神请求中缺少 gl-uid 或 gl-token');
 
-    const env = await loadEnvironment(panelUrl, apiToken, envName);
+    const env = await loadEnvironment(panelUrl, apiToken, envName, baihuNode);
     const result = updateAccountToken(env, glUid, glToken);
 
     if (!result.changed) return;
 
-    await putJson(panelUrl + '/env/' + encodeURIComponent(env.id), apiToken, result.payload);
+    await putJson(panelUrl + '/env/' + encodeURIComponent(env.id), apiToken, result.payload, baihuNode);
     $notification.post(TITLE, '已更新白虎环境变量', '账号 ' + abbreviate(glUid) + ' 的 glToken 已刷新');
   } catch (error) {
     const message = error && error.message ? error.message : String(error);
@@ -77,10 +78,11 @@ function headerValue(headers, targetName) {
   return key ? text(headers[key]) : '';
 }
 
-async function loadEnvironment(panelUrl, apiToken, envName) {
+async function loadEnvironment(panelUrl, apiToken, envName, baihuNode) {
   const response = await getJson(
     panelUrl + '/env?name=' + encodeURIComponent(envName) + '&page=1&page_size=100',
     apiToken,
+    baihuNode,
   );
   const data = response.data;
   const list = Array.isArray(data) ? data : data && Array.isArray(data.data) ? data.data : [];
@@ -122,23 +124,24 @@ function updateAccountToken(env, glUid, glToken) {
   return { changed: true, payload: payload };
 }
 
-function getJson(url, apiToken) {
-  return requestJson('get', url, apiToken);
+function getJson(url, apiToken, baihuNode) {
+  return requestJson('get', url, apiToken, undefined, baihuNode);
 }
 
-function putJson(url, apiToken, body) {
-  return requestJson('put', url, apiToken, body);
+function putJson(url, apiToken, body, baihuNode) {
+  return requestJson('put', url, apiToken, body, baihuNode);
 }
 
-function requestJson(method, url, apiToken, body) {
+function requestJson(method, url, apiToken, body, baihuNode) {
   return new Promise((resolve, reject) => {
     const options = {
       url: url,
-      timeout: 25,
+      timeout: 2500,
       headers: {
         Authorization: 'Bearer ' + apiToken,
         'Content-Type': 'application/json',
       },
+      node: baihuNode,
     };
     if (body !== undefined) options.body = JSON.stringify(body);
 
