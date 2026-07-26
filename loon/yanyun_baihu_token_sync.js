@@ -9,14 +9,17 @@
  */
 
 const TITLE = '燕云登录态同步';
-const PLUGIN_VERSION = '2026.07.26.1';
+const PLUGIN_VERSION = '2026.07.26.2';
 
 (async () => {
   try {
     const args = readArguments();
-    if (!isEnabled(args.sync_enabled, true)) return;
-
     const debugEnabled = isEnabled(args.debug_notifications, false);
+    if (!isEnabled(args.sync_enabled, true)) {
+      debugNotice(debugEnabled, '同步开关已关闭', '请开启“启用同步”后再试');
+      return;
+    }
+
     const panelUrl = normalizePanelUrl(args.baihu_url);
     const apiToken = text(args.baihu_api_token);
     const envName = text(args.env_name) || 'YY_BLINDBOX_ACCOUNTS';
