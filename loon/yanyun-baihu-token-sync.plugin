@@ -12,7 +12,7 @@ env_name = input,"YY_BLINDBOX_ACCOUNTS",tag=环境变量名,desc=存放燕云账
 sync_enabled = switch,true,tag=启用同步,desc=关闭后不读取或上传任何网易大神登录态。
 
 [Script]
-http-request ^https:\/\/god\.gameyw\.netease\.com\/v1\/app\/server-time(?:\?.*)?$ script-path=yanyun_baihu_token_sync.js,tag=同步网易大神 glToken,timeout=15,argument=[{baihu_url},{baihu_api_token},{env_name},{sync_enabled}],enable={sync_enabled}
+http-request ^https:\/\/god\.gameyw\.netease\.com\/v1\/app\/server-time(?:\?.*)?$ script-path=https://raw.githubusercontent.com/latte03/loon-public/main/loon/yanyun_baihu_token_sync.js,tag=同步网易大神 glToken,timeout=15,argument=[{baihu_url},{baihu_api_token},{env_name},{sync_enabled}],enable={sync_enabled}
 
 [MITM]
 hostname = god.gameyw.netease.com
