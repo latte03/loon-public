@@ -4,7 +4,7 @@
  * 燕云十六声 - 网易大神登录态同步至白虎面板
  *
  * 本脚本必须从同目录的 yanyun-baihu-token-sync.plugin 安装。
- * 它只读取 conf/get 请求头中的 gl-uid 和 gl-token，且只写回
+ * 它只读取 getUserInfo 请求头中的 gl-uid 和 gl-token，且只写回
  * 目标 glUid 的 glToken，不会修改活动字段或其他账号字段。
  */
 
