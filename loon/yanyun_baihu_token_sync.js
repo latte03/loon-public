@@ -9,6 +9,7 @@
  */
 
 const TITLE = '燕云登录态同步';
+const PLUGIN_VERSION = '2026.07.26';
 
 (async () => {
   try {
@@ -22,7 +23,11 @@ const TITLE = '燕云登录态同步';
     const glUid = headerValue($request.headers, 'gl-uid');
     const glToken = headerValue($request.headers, 'gl-token');
 
-    debugNotice(debugEnabled, '已匹配网易大神请求', '准备同步账号 ' + abbreviate(glUid || '未知账号'));
+    debugNotice(
+      debugEnabled,
+      '已匹配网易大神请求',
+      'v' + PLUGIN_VERSION + '，准备同步账号 ' + abbreviate(glUid || '未知账号'),
+    );
     if (!apiToken) throw new Error('未填写白虎 OpenAPI Token');
     if (!glUid || !glToken) throw new Error('网易大神请求中缺少 gl-uid 或 gl-token');
 

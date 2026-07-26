@@ -1,9 +1,11 @@
 #!name=燕云十六声 - 白虎登录态同步
-#!desc=打开网易大神时，按 glUid 将最新 glToken 同步至白虎的 YY_BLINDBOX_ACCOUNTS。仅变更时通知。
+#!desc=打开网易大神时，按 glUid 将最新 glToken 同步至白虎的 YY_BLINDBOX_ACCOUNTS。仅变更时通知。版本：2026.07.26
 #!author=latte03
 #!homepage=https://github.com/latte03/loon-public
 #!system=iOS
 #!tag=燕云十六声,白虎,网易大神
+# Version: 2026.07.26
+# Updated: 2026-07-26
 
 [Argument]
 baihu_url = input,"https://baihu.agan.work:16666",tag=白虎地址,desc=白虎面板根地址；不要填写 /open2api/v1。
