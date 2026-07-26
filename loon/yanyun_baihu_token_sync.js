@@ -9,7 +9,7 @@
  */
 
 const TITLE = '燕云登录态同步';
-const PLUGIN_VERSION = '2026.07.26';
+const PLUGIN_VERSION = '2026.07.26.1';
 
 (async () => {
   try {
@@ -28,8 +28,11 @@ const PLUGIN_VERSION = '2026.07.26';
       '已匹配网易大神请求',
       'v' + PLUGIN_VERSION + '，准备同步账号 ' + abbreviate(glUid || '未知账号'),
     );
+    if (!glUid || !glToken) {
+      debugNotice(debugEnabled, '本次请求不含登录态', '已跳过，等待携带 gl-uid 与 gl-token 的请求');
+      return;
+    }
     if (!apiToken) throw new Error('未填写白虎 OpenAPI Token');
-    if (!glUid || !glToken) throw new Error('网易大神请求中缺少 gl-uid 或 gl-token');
 
     const env = await loadEnvironment(panelUrl, apiToken, envName);
     debugNotice(debugEnabled, '白虎环境变量读取成功', '已找到 ' + envName);
