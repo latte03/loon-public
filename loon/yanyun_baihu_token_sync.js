@@ -8,27 +8,34 @@
  * 目标 glUid 的 glToken，不会修改活动字段或其他账号字段。
  */
 
-(async () => {
-  const TITLE = '燕云登录态同步';
+const TITLE = '燕云登录态同步';
 
+(async () => {
   try {
     const args = readArguments();
     if (!isEnabled(args.sync_enabled, true)) return;
 
+    const debugEnabled = isEnabled(args.debug_notifications, false);
     const panelUrl = normalizePanelUrl(args.baihu_url);
     const apiToken = text(args.baihu_api_token);
     const envName = text(args.env_name) || 'YY_BLINDBOX_ACCOUNTS';
     const glUid = headerValue($request.headers, 'gl-uid');
     const glToken = headerValue($request.headers, 'gl-token');
 
+    debugNotice(debugEnabled, '已匹配网易大神请求', '准备同步账号 ' + abbreviate(glUid || '未知账号'));
     if (!apiToken) throw new Error('未填写白虎 OpenAPI Token');
     if (!glUid || !glToken) throw new Error('网易大神请求中缺少 gl-uid 或 gl-token');
 
     const env = await loadEnvironment(panelUrl, apiToken, envName);
+    debugNotice(debugEnabled, '白虎环境变量读取成功', '已找到 ' + envName);
     const result = updateAccountToken(env, glUid, glToken);
 
-    if (!result.changed) return;
+    if (!result.changed) {
+      debugNotice(debugEnabled, '无需更新', '账号 ' + abbreviate(glUid) + ' 的 glToken 与白虎一致');
+      return;
+    }
 
+    debugNotice(debugEnabled, '检测到登录态变化', '正在更新账号 ' + abbreviate(glUid) + ' 的 glToken');
     await putJson(panelUrl + '/env/' + encodeURIComponent(env.id), apiToken, result.payload);
     $notification.post(TITLE, '已更新白虎环境变量', '账号 ' + abbreviate(glUid) + ' 的 glToken 已刷新');
   } catch (error) {
@@ -168,4 +175,11 @@ function abbreviate(value) {
 function safeMessage(value) {
   const raw = text(value) || '未知错误';
   return raw.length > 120 ? raw.slice(0, 117) + '…' : raw;
+}
+
+function debugNotice(enabled, subtitle, content) {
+  if (!enabled) return;
+  const message = safeMessage(content);
+  console.log('[' + TITLE + '] ' + subtitle + '：' + message);
+  $notification.post(TITLE, subtitle, message);
 }
