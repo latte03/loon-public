@@ -4,21 +4,16 @@
  * 燕云十六声 - 网易大神登录态同步至白虎面板
  *
  * 本脚本必须从同目录的 yanyun-baihu-token-sync.plugin 安装。
- * 它只读取 server-time 请求头中的 gl-uid 和 gl-token，且只写回
+ * 它只读取 conf/get 请求头中的 gl-uid 和 gl-token，且只写回
  * 目标 glUid 的 glToken，不会修改活动字段或其他账号字段。
  */
 
 const TITLE = '燕云登录态同步';
-const PLUGIN_VERSION = '2026.07.26.2';
 
 (async () => {
   try {
     const args = readArguments();
-    const debugEnabled = isEnabled(args.debug_notifications, false);
-    if (!isEnabled(args.sync_enabled, true)) {
-      debugNotice(debugEnabled, '同步开关已关闭', '请开启“启用同步”后再试');
-      return;
-    }
+    if (!isEnabled(args.sync_enabled, true)) return;
 
     const panelUrl = normalizePanelUrl(args.baihu_url);
     const apiToken = text(args.baihu_api_token);
@@ -26,27 +21,14 @@ const PLUGIN_VERSION = '2026.07.26.2';
     const glUid = headerValue($request.headers, 'gl-uid');
     const glToken = headerValue($request.headers, 'gl-token');
 
-    debugNotice(
-      debugEnabled,
-      '已匹配网易大神请求',
-      'v' + PLUGIN_VERSION + '，准备同步账号 ' + abbreviate(glUid || '未知账号'),
-    );
-    if (!glUid || !glToken) {
-      debugNotice(debugEnabled, '本次请求不含登录态', '已跳过，等待携带 gl-uid 与 gl-token 的请求');
-      return;
-    }
     if (!apiToken) throw new Error('未填写白虎 OpenAPI Token');
+    if (!glUid || !glToken) throw new Error('网易大神请求中缺少 gl-uid 或 gl-token');
 
     const env = await loadEnvironment(panelUrl, apiToken, envName);
-    debugNotice(debugEnabled, '白虎环境变量读取成功', '已找到 ' + envName);
     const result = updateAccountToken(env, glUid, glToken);
 
-    if (!result.changed) {
-      debugNotice(debugEnabled, '无需更新', '账号 ' + abbreviate(glUid) + ' 的 glToken 与白虎一致');
-      return;
-    }
+    if (!result.changed) return;
 
-    debugNotice(debugEnabled, '检测到登录态变化', '正在更新账号 ' + abbreviate(glUid) + ' 的 glToken');
     await putJson(panelUrl + '/env/' + encodeURIComponent(env.id), apiToken, result.payload);
     $notification.post(TITLE, '已更新白虎环境变量', '账号 ' + abbreviate(glUid) + ' 的 glToken 已刷新');
   } catch (error) {
@@ -152,7 +134,7 @@ function requestJson(method, url, apiToken, body) {
   return new Promise((resolve, reject) => {
     const options = {
       url: url,
-      timeout: 12,
+      timeout: 25,
       headers: {
         Authorization: 'Bearer ' + apiToken,
         'Content-Type': 'application/json',
@@ -186,11 +168,4 @@ function abbreviate(value) {
 function safeMessage(value) {
   const raw = text(value) || '未知错误';
   return raw.length > 120 ? raw.slice(0, 117) + '…' : raw;
-}
-
-function debugNotice(enabled, subtitle, content) {
-  if (!enabled) return;
-  const message = safeMessage(content);
-  console.log('[' + TITLE + '] ' + subtitle + '：' + message);
-  $notification.post(TITLE, subtitle, message);
 }
