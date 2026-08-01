@@ -1,14 +1,14 @@
 'use strict';
 
 /*
- * 领克 H5 - 登录态同步至白虎面板
+ * 领克 H5/Cordova - 登录态同步至白虎面板
  *
  * 捕获入口：
- * 1. H5 启动 URL 中同时出现的 token / refreshToken；
- * 2. /auth/login/refresh 返回的 data.centerTokenDto。
+ * 1. Cordova 签到状态请求头中的 token；
+ * 2. /auth/login/refresh 返回的 data.centerTokenDto（H5 兼容入口）。
  *
- * 两个值分别写入白虎已有的 LYNKCO_TOKEN 与
- * LYNKCO_REFRESH_TOKEN。脚本不会输出完整凭证，也不会创建变量。
+ * Cordova 不向网页暴露 refreshToken，因此实际 App 请求只更新
+ * LYNKCO_TOKEN，不会清空或覆盖 LYNKCO_REFRESH_TOKEN。
  */
 
 const TITLE = '领克登录态同步';
@@ -24,10 +24,13 @@ async function main() {
     if (!isEnabled(args.sync_enabled, true)) return;
 
     const debugEnabled = isEnabled(args.debug_enabled, false);
-    const auth = extractAuthPair($request, typeof $response === 'undefined' ? null : $response);
+    const auth = extractAuthCredentials(
+      $request,
+      typeof $response === 'undefined' ? null : $response,
+    );
     if (!auth) {
       if (debugEnabled) {
-        console.log('[' + TITLE + '] 当前请求未发现完整的 token + refreshToken：' + safeRequestName($request));
+        console.log('[' + TITLE + '] 当前请求未发现 token：' + safeRequestName($request));
       }
       return;
     }
@@ -39,37 +42,54 @@ async function main() {
     const baihuNode = text(args.baihu_node) || 'DIRECT';
 
     if (!apiToken) throw new Error('未填写白虎 OpenAPI Token');
-    if (tokenEnvName === refreshEnvName) throw new Error('token 与 refreshToken 不能写入同一个环境变量');
+    if (auth.refreshToken && tokenEnvName === refreshEnvName) {
+      throw new Error('token 与 refreshToken 不能写入同一个环境变量');
+    }
 
-    const environments = await Promise.all([
-      loadEnvironment(panelUrl, apiToken, tokenEnvName, baihuNode),
-      loadEnvironment(panelUrl, apiToken, refreshEnvName, baihuNode),
-    ]);
-    const tokenEnv = environments[0];
-    const refreshEnv = environments[1];
-    const fingerprint = authFingerprint(auth.token, auth.refreshToken);
-    const cacheKey = CACHE_KEY_PREFIX + tokenEnvName + ':' + refreshEnvName;
+    const tokenEnv = await loadEnvironment(panelUrl, apiToken, tokenEnvName, baihuNode);
+    const targets = [{ env: tokenEnv, value: auth.token }];
+    if (auth.refreshToken) {
+      const refreshEnv = await loadEnvironment(
+        panelUrl,
+        apiToken,
+        refreshEnvName,
+        baihuNode,
+      );
+      // refreshToken 先写入，降低第二步失败时丢失可刷新凭证的风险。
+      targets.unshift({ env: refreshEnv, value: auth.refreshToken });
+    }
 
-    if (environmentMatches(tokenEnv, auth.token) && environmentMatches(refreshEnv, auth.refreshToken)) {
+    const fingerprint = authFingerprint(auth.token, auth.refreshToken || '');
+    const cacheKey =
+      CACHE_KEY_PREFIX + tokenEnvName + (auth.refreshToken ? ':' + refreshEnvName : '');
+
+    if (targets.every((target) => environmentMatches(target.env, target.value))) {
       writeCache(cacheKey, fingerprint);
       if (debugEnabled) console.log('[' + TITLE + '] 白虎登录态已是最新，无需更新');
       return;
     }
 
-    if (!environmentValueReadable(tokenEnv) && !environmentValueReadable(refreshEnv)) {
+    if (targets.every((target) => !environmentValueReadable(target.env))) {
       if (readCache(cacheKey) === fingerprint) {
         if (debugEnabled) console.log('[' + TITLE + '] 机密变量不可读，已根据本机指纹跳过重复写入');
         return;
       }
     }
 
-    // refreshToken 先写入，降低第二步失败时丢失可刷新凭证的风险。
-    await updateEnvironment(panelUrl, apiToken, refreshEnv, auth.refreshToken, baihuNode);
-    await updateEnvironment(panelUrl, apiToken, tokenEnv, auth.token, baihuNode);
+    for (let index = 0; index < targets.length; index += 1) {
+      const target = targets[index];
+      await updateEnvironment(panelUrl, apiToken, target.env, target.value, baihuNode);
+    }
     writeCache(cacheKey, fingerprint);
 
     console.log('[' + TITLE + '] 已从' + auth.source + '更新白虎登录态');
-    $notification.post(TITLE, '已更新白虎环境变量', tokenEnvName + ' 与 ' + refreshEnvName + ' 已同步');
+    $notification.post(
+      TITLE,
+      '已更新白虎环境变量',
+      auth.refreshToken
+        ? tokenEnvName + ' 与 ' + refreshEnvName + ' 已同步'
+        : tokenEnvName + ' 已同步；本次请求未提供 refreshToken',
+    );
   } catch (error) {
     const message = error && error.message ? error.message : String(error);
     console.log('[' + TITLE + '] ' + safeMessage(message));
@@ -79,14 +99,7 @@ async function main() {
   }
 }
 
-function extractAuthPair(request, response) {
-  const query = queryParameters(request && request.url);
-  const queryToken = firstText(query, ['token', 'accessToken']);
-  const queryRefreshToken = firstText(query, ['refreshToken']);
-  if (queryToken && queryRefreshToken) {
-    return { token: queryToken, refreshToken: queryRefreshToken, source: 'H5 启动参数' };
-  }
-
+function extractAuthCredentials(request, response) {
   const json = parseJson(response && response.body);
   const dto = findCenterTokenDto(json);
   const responseToken = dto && firstText(dto, ['token', 'accessToken']);
@@ -95,27 +108,20 @@ function extractAuthPair(request, response) {
     return { token: responseToken, refreshToken: responseRefreshToken, source: '认证接口响应' };
   }
 
+  const requestToken = isCordovaTokenCaptureRequest(request && request.url)
+    ? firstText(request && request.headers, ['token', 'accessToken', 'access-token'])
+    : '';
+  if (requestToken) {
+    return { token: requestToken, refreshToken: '', source: 'Cordova 签到请求头' };
+  }
+
   return null;
 }
 
-function queryParameters(url) {
-  const result = {};
-  const raw = String(url || '');
-  const queryStart = raw.indexOf('?');
-  if (queryStart < 0) return result;
-
-  const hashStart = raw.indexOf('#', queryStart);
-  const query = raw.slice(queryStart + 1, hashStart < 0 ? raw.length : hashStart);
-  query.split('&').forEach((part) => {
-    if (!part) return;
-    const separator = part.indexOf('=');
-    const rawKey = separator < 0 ? part : part.slice(0, separator);
-    const rawValue = separator < 0 ? '' : part.slice(separator + 1);
-    const key = decode(rawKey);
-    if (!key) return;
-    result[key] = decode(rawValue);
-  });
-  return result;
+function isCordovaTokenCaptureRequest(url) {
+  return /^https:\/\/app-api-gw-toc\.lynkco\.com\/up\/api\/v1\/user\/sign\/day\/info(?:\?.*)?$/i.test(
+    String(url || ''),
+  );
 }
 
 function decode(value) {
@@ -301,8 +307,9 @@ function safeMessage(value) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    extractAuthPair,
-    queryParameters,
+    extractAuthCredentials,
+    extractAuthPair: extractAuthCredentials,
+    isCordovaTokenCaptureRequest,
     findCenterTokenDto,
     authFingerprint,
     environmentValueReadable,
