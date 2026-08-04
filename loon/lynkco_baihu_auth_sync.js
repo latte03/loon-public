@@ -13,6 +13,7 @@
 
 const TITLE = '领克登录态同步';
 const CACHE_KEY_PREFIX = 'lynkco-baihu-auth-sync:';
+const DEFAULT_TASK_ID = 'd8plp22ikd0c73e3sup0';
 
 if (typeof $request !== 'undefined') {
   main();
@@ -40,6 +41,7 @@ async function main() {
     const tokenEnvName = text(args.token_env_name) || 'LYNKCO_TOKEN';
     const refreshEnvName = text(args.refresh_env_name) || 'LYNKCO_REFRESH_TOKEN';
     const baihuNode = text(args.baihu_node) || 'DIRECT';
+    const taskId = text(args.task_id) || DEFAULT_TASK_ID;
 
     if (!apiToken) throw new Error('未填写白虎 OpenAPI Token');
     if (auth.refreshToken && tokenEnvName === refreshEnvName) {
@@ -62,34 +64,62 @@ async function main() {
     const fingerprint = authFingerprint(auth.token, auth.refreshToken || '');
     const cacheKey =
       CACHE_KEY_PREFIX + tokenEnvName + (auth.refreshToken ? ':' + refreshEnvName : '');
+    let loginStateUpdated = false;
 
-    if (targets.every((target) => environmentMatches(target.env, target.value))) {
+    const environmentsAlreadyCurrent = targets.every((target) =>
+      environmentMatches(target.env, target.value),
+    );
+    if (environmentsAlreadyCurrent) {
       writeCache(cacheKey, fingerprint);
       if (debugEnabled) console.log('[' + TITLE + '] 白虎登录态已是最新，无需更新');
+    } else if (targets.every((target) => !environmentValueReadable(target.env))) {
+      if (readCache(cacheKey) === fingerprint) {
+        if (debugEnabled) console.log('[' + TITLE + '] 机密变量不可读，已根据本机指纹跳过重复写入');
+      } else {
+        for (let index = 0; index < targets.length; index += 1) {
+          const target = targets[index];
+          await updateEnvironment(panelUrl, apiToken, target.env, target.value, baihuNode);
+        }
+        writeCache(cacheKey, fingerprint);
+        loginStateUpdated = true;
+      }
+    } else {
+      for (let index = 0; index < targets.length; index += 1) {
+        const target = targets[index];
+        await updateEnvironment(panelUrl, apiToken, target.env, target.value, baihuNode);
+      }
+      writeCache(cacheKey, fingerprint);
+      loginStateUpdated = true;
+    }
+
+    let taskResult;
+    try {
+      taskResult = await executeTaskOncePerDay(
+        panelUrl,
+        apiToken,
+        taskId,
+        baihuNode,
+      );
+    } catch (error) {
+      const message = error && error.message ? error.message : String(error);
+      console.log('[' + TITLE + '] 登录态已确认，但任务触发失败：' + safeMessage(message));
+      $notification.post(TITLE, '白虎任务触发失败', safeMessage(message));
       return;
     }
 
-    if (targets.every((target) => !environmentValueReadable(target.env))) {
-      if (readCache(cacheKey) === fingerprint) {
-        if (debugEnabled) console.log('[' + TITLE + '] 机密变量不可读，已根据本机指纹跳过重复写入');
-        return;
-      }
+    if (loginStateUpdated) {
+      console.log('[' + TITLE + '] 已从' + auth.source + '更新白虎登录态');
+      $notification.post(
+        TITLE,
+        '已更新白虎环境变量',
+        (auth.refreshToken
+          ? tokenEnvName + ' 与 ' + refreshEnvName + ' 已同步'
+          : tokenEnvName + ' 已同步；本次请求未提供 refreshToken') +
+          '；' + taskResult.message,
+      );
+    } else if (debugEnabled) {
+      console.log('[' + TITLE + '] ' + taskResult.message);
     }
-
-    for (let index = 0; index < targets.length; index += 1) {
-      const target = targets[index];
-      await updateEnvironment(panelUrl, apiToken, target.env, target.value, baihuNode);
-    }
-    writeCache(cacheKey, fingerprint);
-
-    console.log('[' + TITLE + '] 已从' + auth.source + '更新白虎登录态');
-    $notification.post(
-      TITLE,
-      '已更新白虎环境变量',
-      auth.refreshToken
-        ? tokenEnvName + ' 与 ' + refreshEnvName + ' 已同步'
-        : tokenEnvName + ' 已同步；本次请求未提供 refreshToken',
-    );
   } catch (error) {
     const message = error && error.message ? error.message : String(error);
     console.log('[' + TITLE + '] ' + safeMessage(message));
@@ -231,6 +261,31 @@ function updateEnvironment(panelUrl, apiToken, env, value, baihuNode) {
   );
 }
 
+async function executeTaskOncePerDay(panelUrl, apiToken, taskId, baihuNode, now) {
+  const dateKey = shanghaiDateKey(now);
+  const cacheKey = CACHE_KEY_PREFIX + 'task-executed:' + taskId;
+  if (readCache(cacheKey) === dateKey) {
+    return { executed: false, message: '白虎任务今天已触发，跳过重复执行' };
+  }
+
+  await requestJson(
+    'post',
+    panelUrl + '/execute/task/' + encodeURIComponent(taskId),
+    apiToken,
+    undefined,
+    baihuNode,
+  );
+  writeCache(cacheKey, dateKey);
+  return { executed: true, message: '已触发白虎任务（今日首次）' };
+}
+
+function shanghaiDateKey(now) {
+  const source = now instanceof Date ? now : new Date();
+  // 中国标准时间固定为 UTC+8，按 UTC 字段读取可避开设备所在时区的影响。
+  const shanghai = new Date(source.getTime() + 8 * 60 * 60 * 1000);
+  return shanghai.toISOString().slice(0, 10);
+}
+
 function requestJson(method, url, apiToken, body, baihuNode) {
   return new Promise((resolve, reject) => {
     const options = {
@@ -312,6 +367,8 @@ if (typeof module !== 'undefined' && module.exports) {
     isCordovaTokenCaptureRequest,
     findCenterTokenDto,
     authFingerprint,
+    shanghaiDateKey,
+    executeTaskOncePerDay,
     environmentValueReadable,
     environmentMatches,
     safeRequestName,

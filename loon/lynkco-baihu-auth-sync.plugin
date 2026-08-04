@@ -1,11 +1,11 @@
 #!name=领克 - 白虎登录态同步
-#!desc=从领克 Cordova 签到请求头捕获 token；H5 刷新响应可同时捕获 refreshToken。版本：2026.08.01.2
+#!desc=同步领克登录态到白虎，并在每天首次成功获取 token 后触发指定任务。版本：2026.08.04.1
 #!author=latte03
 #!homepage=https://github.com/latte03/loon-public
 #!system=iOS
 #!tag=领克,签到,白虎
-#!version=2026.08.01.2
-# Updated: 2026-08-01
+#!version=2026.08.04.1
+# Updated: 2026-08-04
 
 [Argument]
 baihu_url = input,"https://baihu.agan.work:16666",tag=白虎地址,desc=白虎面板根地址；不要填写 /open2api/v1。
@@ -13,12 +13,13 @@ baihu_api_token = input,"",tag=白虎 OpenAPI Token,desc=在白虎面板生成�
 token_env_name = input,"LYNKCO_TOKEN",tag=访问令牌变量,desc=白虎中预先创建的领克 token 机密变量名。
 refresh_env_name = input,"LYNKCO_REFRESH_TOKEN",tag=刷新令牌变量,desc=可选；仅当 H5 刷新响应提供 refreshToken 时才读取和更新。
 baihu_node = input,"DIRECT",tag=白虎请求策略,desc=默认 DIRECT；若直连没有 IPv6，请填一个可访问白虎的 Loon 策略组或节点名称。
+task_id = input,"d8plp22ikd0c73e3sup0",tag=同步后执行任务,desc=每天首次成功确认领克 token 后触发的白虎任务 ID；留空仍使用默认任务。
 sync_enabled = switch,true,tag=启用同步,desc=关闭后不读取或上传任何领克登录态。
 debug_enabled = switch,false,tag=诊断日志,desc=开启后记录规则是否命中；日志中的 token 参数会被脱敏。
 
 [Script]
-http-request ^https:\/\/app-api-gw-toc\.lynkco\.com\/up\/api\/v1\/user\/sign\/day\/info(?:\?.*)?$ script-path=https://raw.githubusercontent.com/latte03/loon-public/main/loon/lynkco_baihu_auth_sync.js?v=20260801.2,tag=捕获领克 Cordova token,timeout=30,argument=[{baihu_url},{baihu_api_token},{token_env_name},{refresh_env_name},{baihu_node},{sync_enabled},{debug_enabled}],enable=true
-http-response ^https:\/\/h5-api\.lynkco\.com\/auth\/login\/refresh(?:\?.*)?$ requires-body=true,script-path=https://raw.githubusercontent.com/latte03/loon-public/main/loon/lynkco_baihu_auth_sync.js?v=20260801.2,tag=捕获领克 H5 刷新登录态,timeout=30,argument=[{baihu_url},{baihu_api_token},{token_env_name},{refresh_env_name},{baihu_node},{sync_enabled},{debug_enabled}],enable=true
+http-request ^https:\/\/app-api-gw-toc\.lynkco\.com\/up\/api\/v1\/user\/sign\/day\/info(?:\?.*)?$ script-path=https://raw.githubusercontent.com/latte03/loon-public/main/loon/lynkco_baihu_auth_sync.js?v=20260804.1,tag=捕获领克 Cordova token,timeout=30,argument=[{baihu_url},{baihu_api_token},{token_env_name},{refresh_env_name},{baihu_node},{task_id},{sync_enabled},{debug_enabled}],enable=true
+http-response ^https:\/\/h5-api\.lynkco\.com\/auth\/login\/refresh(?:\?.*)?$ requires-body=true,script-path=https://raw.githubusercontent.com/latte03/loon-public/main/loon/lynkco_baihu_auth_sync.js?v=20260804.1,tag=捕获领克 H5 刷新登录态,timeout=30,argument=[{baihu_url},{baihu_api_token},{token_env_name},{refresh_env_name},{baihu_node},{task_id},{sync_enabled},{debug_enabled}],enable=true
 
 [MITM]
 hostname = app-api-gw-toc.lynkco.com, h5-api.lynkco.com
