@@ -1,21 +1,25 @@
 #!name=燕云十六声 - 白虎登录态同步
-#!desc=打开网易大神时，按 glUid 将最新 glToken 同步至白虎的 YY_BLINDBOX_ACCOUNTS。仅变更时通知。版本：2026.07.26.5
+#!desc=打开网易大神时按 glUid 同步 glToken 至白虎 YY_BLINDBOX_ACCOUNTS；打开微信小程序时把 wx.login code 与 access_token 同步至白虎 YY_MINI_APP_CODE / YY_MINI_ACCESS_TOKEN。仅变更时通知。版本：2026.08.04.1
 #!author=latte03
 #!homepage=https://github.com/latte03/loon-public
 #!system=iOS
-#!tag=燕云十六声,白虎,网易大神
-#!version=2026.07.26.5
-# Updated: 2026-07-26
+#!tag=燕云十六声,白虎,网易大神,微信小程序
+#!version=2026.08.04.1
+# Updated: 2026-08-04
 
 [Argument]
 baihu_url = input,"https://baihu.agan.work:16666",tag=白虎地址,desc=白虎面板根地址；不要填写 /open2api/v1。
 baihu_api_token = input,"",tag=白虎 OpenAPI Token,desc=在白虎面板生成的 OpenAPI Token，仅保存于本机 Loon 配置。
 env_name = input,"YY_BLINDBOX_ACCOUNTS",tag=环境变量名,desc=存放燕云账号数组的白虎普通环境变量名称。
+mini_code_env_name = input,"YY_MINI_APP_CODE",tag=小程序 code 变量名,desc=存放 wx.login code 的白虎普通环境变量名称。
+mini_token_env_name = input,"YY_MINI_ACCESS_TOKEN",tag=小程序 token 变量名,desc=存放小程序 access_token 的白虎普通环境变量名称。
 baihu_node = input,"DIRECT",tag=白虎请求策略,desc=默认 DIRECT；若直连没有 IPv6，请填一个可访问白虎 IPv6 地址的 Loon 策略组或节点名称。
-sync_enabled = switch,true,tag=启用同步,desc=关闭后不读取或上传任何网易大神登录态。
+sync_enabled = switch,true,tag=启用大神同步,desc=关闭后不读取或上传任何网易大神登录态。
+mini_sync_enabled = switch,true,tag=启用小程序同步,desc=关闭后不再捕获或上传小程序 code/token。
 
 [Script]
-http-request ^https:\/\/inf-miniapp\.ds\.163\.com\/v1\/miniapp\/base\/user\/getUserInfo(?:\?.*)?$ script-path=https://raw.githubusercontent.com/latte03/loon-public/main/loon/yanyun_baihu_token_sync.js?v=20260726.5,tag=同步网易大神 glToken,timeout=300,argument=[{baihu_url},{baihu_api_token},{env_name},{baihu_node},{sync_enabled}],enable=true
+http-request ^https:\/\/inf-miniapp\.ds\.163\.com\/v1\/miniapp\/base\/user\/getUserInfo(?:\?.*)?$ script-path=https://raw.githubusercontent.com/latte03/loon-public/main/loon/yanyun_baihu_token_sync.js?v=20260804.1,tag=同步网易大神 glToken,timeout=30,argument=[{baihu_url},{baihu_api_token},{env_name},{baihu_node},{sync_enabled}],enable=true
+http-response ^https:\/\/s3\.game\.163\.com\/[^/?]+\/weixinminiprogram(?:\?.*)?$ requires-body=true,script-path=https://raw.githubusercontent.com/latte03/loon-public/main/loon/yanyun_baihu_token_sync.js?v=20260804.1,tag=同步小程序 code/token,timeout=30,argument=[{baihu_url},{baihu_api_token},{baihu_node},{mini_code_env_name},{mini_token_env_name},{mini_sync_enabled}],enable=true
 
 [MITM]
-hostname = inf-miniapp.ds.163.com
+hostname = inf-miniapp.ds.163.com, s3.game.163.com

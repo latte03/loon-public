@@ -1,16 +1,91 @@
 'use strict';
 
 /*
- * 燕云十六声 - 网易大神登录态同步至白虎面板
+ * 燕云十六声 - 网易大神/微信小程序登录态同步至白虎面板
  *
- * 本脚本必须从同目录的 yanyun-baihu-token-sync.plugin 安装。
- * 它只读取 getUserInfo 请求头中的 gl-uid 和 gl-token，且只写回
- * 目标 glUid 的 glToken，不会修改活动字段或其他账号字段。
+ * 本脚本必须从同目录的 yanyun-baihu-token-sync.plugin 安装。它根据请求 URL 分流：
+ *
+ * 1. GET https://inf-miniapp.ds.163.com/v1/miniapp/base/user/getUserInfo（http-request）
+ *    读取请求头中的 gl-uid 和 gl-token，只写回目标 glUid 的 glToken，
+ *    不会修改活动字段或其他账号字段。
+ * 2. GET https://s3.game.163.com/{projectId}/weixinminiprogram?code=...（http-response）
+ *    从请求 URL 提取 wx.login code，写入白虎普通环境变量 YY_MINI_APP_CODE；
+ *    从响应体 data.token 提取小程序 access_token，写入 YY_MINI_ACCESS_TOKEN。
+ *    只写这两个单账号环境变量，不涉及账号数组，也不保存 uuid。
  */
 
-const TITLE = '燕云登录态同步';
+const TITLE_GL = '燕云登录态同步';
+const TITLE_MINI = '燕云小程序同步';
+const MINI_URL_PATTERN = /^https:\/\/s3\.game\.163\.com\/[^/?]+\/weixinminiprogram(?:\?|$)/i;
 
 (async () => {
+  const requestUrl = text($request && $request.url);
+  if (MINI_URL_PATTERN.test(requestUrl)) {
+    await handleMiniSync();
+  } else {
+    await handleGlTokenSync();
+  }
+})();
+
+async function handleMiniSync() {
+  try {
+    const args = readArguments();
+    if (!isEnabled(args.mini_sync_enabled, true)) return;
+
+    const panelUrl = normalizePanelUrl(args.baihu_url);
+    const apiToken = text(args.baihu_api_token);
+    const baihuNode = text(args.baihu_node) || 'DIRECT';
+    const codeEnvName = text(args.mini_code_env_name) || 'YY_MINI_APP_CODE';
+    const tokenEnvName = text(args.mini_token_env_name) || 'YY_MINI_ACCESS_TOKEN';
+
+    if (!apiToken) throw new Error('未填写白虎 OpenAPI Token');
+
+    const requestUrl = text($request && $request.url);
+    const httpStatus = Number(typeof $response !== 'undefined' && $response ? $response.status : 0);
+    if (httpStatus && (httpStatus < 200 || httpStatus >= 300)) {
+      throw new Error('weixinminiprogram 响应 HTTP ' + httpStatus + '，拒绝同步');
+    }
+    const code = extractUrlParam(requestUrl, 'code');
+    const responseJson = parseJson(typeof $response === 'undefined' ? '' : $response && $response.body);
+    const token = firstText(responseJson && responseJson.data, ['token']);
+
+    // 只有「URL 有 code 且响应成功且返回 token」才允许同步任一变量；
+    // 否则会留下“新 code + 旧 token”的不可用组合。
+    if (!code) throw new Error('weixinminiprogram 请求中未发现 code');
+    if (!isSuccessResponse(responseJson)) throw new Error('weixinminiprogram 响应异常，拒绝同步 code');
+    if (!token) throw new Error('weixinminiprogram 响应中未发现 data.token，拒绝同步 code');
+
+    // 先读取并校验两个环境变量，全部通过后再开始写入，避免配置错误导致部分更新。
+    const codeEnv = await loadEnvironment(panelUrl, apiToken, codeEnvName, baihuNode);
+    const tokenEnv = await loadEnvironment(panelUrl, apiToken, tokenEnvName, baihuNode);
+
+    // 先写 token 再写 code：token 约 60 天才变化，若写入失败要等很久才有机会重写；
+    // code 每次打开小程序都会重新同步，晚一轮即可补齐。
+    const updated = [];
+    const tokenChange = plainEnvChange(tokenEnv, token);
+    if (tokenChange.changed) {
+      await putJson(panelUrl + '/env/' + encodeURIComponent(tokenEnv.id), apiToken, tokenChange.payload, baihuNode);
+      updated.push(tokenEnvName);
+    }
+    const codeChange = plainEnvChange(codeEnv, code);
+    if (codeChange.changed) {
+      await putJson(panelUrl + '/env/' + encodeURIComponent(codeEnv.id), apiToken, codeChange.payload, baihuNode);
+      updated.push(codeEnvName);
+    }
+
+    if (updated.length > 0) {
+      $notification.post(TITLE_MINI, '已更新白虎环境变量', updated.join('、') + ' 已刷新');
+    }
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    console.log('[' + TITLE_MINI + '] ' + message);
+    $notification.post(TITLE_MINI, '同步失败', safeMessage(message));
+  } finally {
+    $done({});
+  }
+}
+
+async function handleGlTokenSync() {
   try {
     const args = readArguments();
     if (!isEnabled(args.sync_enabled, true)) return;
@@ -31,15 +106,15 @@ const TITLE = '燕云登录态同步';
     if (!result.changed) return;
 
     await putJson(panelUrl + '/env/' + encodeURIComponent(env.id), apiToken, result.payload, baihuNode);
-    $notification.post(TITLE, '已更新白虎环境变量', '账号 ' + abbreviate(glUid) + ' 的 glToken 已刷新');
+    $notification.post(TITLE_GL, '已更新白虎环境变量', '账号 ' + abbreviate(glUid) + ' 的 glToken 已刷新');
   } catch (error) {
     const message = error && error.message ? error.message : String(error);
-    console.log('[' + TITLE + '] ' + message);
-    $notification.post(TITLE, '同步失败', safeMessage(message));
+    console.log('[' + TITLE_GL + '] ' + message);
+    $notification.post(TITLE_GL, '同步失败', safeMessage(message));
   } finally {
     $done({});
   }
-})();
+}
 
 function readArguments() {
   if (typeof $argument === 'object' && $argument) return $argument;
@@ -78,6 +153,47 @@ function headerValue(headers, targetName) {
   return key ? text(headers[key]) : '';
 }
 
+function extractUrlParam(url, name) {
+  const match = String(url || '').match(new RegExp('[?&]' + name + '=([^&#]+)'));
+  if (!match) return '';
+  try {
+    return decodeURIComponent(match[1]);
+  } catch (_) {
+    return match[1];
+  }
+}
+
+function parseJson(value) {
+  if (value && typeof value === 'object') return value;
+  if (typeof value !== 'string' || !value.trim()) return null;
+  try {
+    return JSON.parse(value);
+  } catch (_) {
+    return null;
+  }
+}
+
+function firstText(object, keys) {
+  if (!object || typeof object !== 'object') return '';
+  const names = Object.keys(object);
+  for (let index = 0; index < keys.length; index += 1) {
+    const target = keys[index].toLowerCase();
+    const name = names.find((candidate) => String(candidate).toLowerCase() === target);
+    if (name) {
+      const value = text(object[name]);
+      if (value) return value;
+    }
+  }
+  return '';
+}
+
+function isSuccessResponse(responseJson) {
+  if (!responseJson || typeof responseJson !== 'object') return false;
+  if (responseJson.code !== undefined && Number(responseJson.code) !== 200) return false;
+  if (responseJson.success === false || responseJson.status === false) return false;
+  return true;
+}
+
 async function loadEnvironment(panelUrl, apiToken, envName, baihuNode) {
   const response = await getJson(
     panelUrl + '/env?name=' + encodeURIComponent(envName) + '&page=1&page_size=100',
@@ -91,7 +207,7 @@ async function loadEnvironment(panelUrl, apiToken, envName, baihuNode) {
   if (!env) throw new Error('白虎中未找到普通环境变量 ' + envName);
   if (!env.id) throw new Error('白虎环境变量缺少 id，无法更新');
   if (env.type && env.type !== 'normal') throw new Error(envName + ' 必须是普通环境变量，不能是机密');
-  if (typeof env.value !== 'string') throw new Error(envName + ' 未返回可读取的 JSON 值');
+  if (typeof env.value !== 'string') throw new Error(envName + ' 未返回可读取的值');
   return env;
 }
 
@@ -111,17 +227,25 @@ function updateAccountToken(env, glUid, glToken) {
   if (text(account.glToken) === glToken) return { changed: false };
 
   account.glToken = glToken;
-  const payload = {
+  return { changed: true, payload: buildEnvPayload(env, JSON.stringify(isArray ? accounts : accounts[0])) };
+}
+
+function plainEnvChange(env, nextValue) {
+  if (text(env.value) === text(nextValue)) return { changed: false };
+  return { changed: true, payload: buildEnvPayload(env, nextValue) };
+}
+
+function buildEnvPayload(env, value) {
+  return {
     id: env.id,
     name: env.name,
-    value: JSON.stringify(isArray ? accounts : accounts[0]),
+    value: value,
     remark: env.remark || '',
     type: env.type || 'normal',
     hidden: Boolean(env.hidden),
     enabled: env.enabled !== false,
     tags: env.tags || '',
   };
-  return { changed: true, payload: payload };
 }
 
 function getJson(url, apiToken, baihuNode) {
@@ -136,7 +260,7 @@ function requestJson(method, url, apiToken, body, baihuNode) {
   return new Promise((resolve, reject) => {
     const options = {
       url: url,
-      timeout: 2500,
+      timeout: 25000,
       headers: {
         Authorization: 'Bearer ' + apiToken,
         'Content-Type': 'application/json',
